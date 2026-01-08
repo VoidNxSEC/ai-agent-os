@@ -46,7 +46,7 @@
           glib
           dbus
           librsvg
-          libsoup_2_4
+          libgnurl
         ];
 
         nativeBuildInputs = with pkgs; [
@@ -84,7 +84,7 @@
 
         devShells.default = pkgs.mkShell {
           inherit buildInputs;
-          
+
           nativeBuildInputs = nativeBuildInputs ++ (with pkgs; [
             cargo-watch
             cargo-edit
