@@ -1,1 +1,0 @@
-/home/kernelcore/arch/ai-agent-os/target/debug/ai-agent: /home/kernelcore/arch/ai-agent-os/crates/agent-core/src/lib.rs /home/kernelcore/arch/ai-agent-os/crates/agent-core/src/main.rs /home/kernelcore/arch/ai-agent-os/crates/hyprland-ipc/src/lib.rs /home/kernelcore/arch/ai-agent-os/crates/log-collector/src/lib.rs /home/kernelcore/arch/ai-agent-os/crates/system-monitor/src/lib.rs
