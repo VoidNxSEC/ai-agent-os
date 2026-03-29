@@ -144,8 +144,11 @@ impl Agent {
         // Connect to NATS if configured (best-effort: failure doesn't abort startup).
         // Uses ConnectOptions with unlimited reconnect so ai-agent-os survives
         // transient NATS restarts and resumes publishing automatically.
+        //
+        // NKey authentication is used when NATS_NKEY_SEED is set (inline seed string
+        // from SOPS-encrypted .env) or NATS_NKEY_SEED_FILE (path to seed file for NixOS).
         let nats_client = if let Some(ref url) = config.nats_url {
-            let opts = async_nats::ConnectOptions::new()
+            let mut opts = async_nats::ConnectOptions::new()
                 .max_reconnects(None) // unlimited
                 .connection_timeout(std::time::Duration::from_secs(5))
                 .event_callback(|event| async move {
@@ -162,6 +165,38 @@ impl Agent {
                         _ => {}
                     }
                 });
+
+            // NKey auth: async-nats accepts the seed string directly via .nkey(seed).
+            // Prefer inline seed env var (12-factor / SOPS-encrypted .env),
+            // fall back to seed file (NixOS file-based secrets).
+            let nkey_seed: Option<String> = if let Ok(seed) = std::env::var("NATS_NKEY_SEED") {
+                let s = seed.trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            } else if let Ok(path) = std::env::var("NATS_NKEY_SEED_FILE") {
+                let path = path.trim().to_string();
+                if path.is_empty() {
+                    None
+                } else {
+                    match std::fs::read_to_string(&path) {
+                        Ok(contents) => contents
+                            .lines()
+                            .find(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
+                            .map(|l| l.trim().to_string()),
+                        Err(e) => {
+                            warn!("Cannot read NATS_NKEY_SEED_FILE {}: {}", path, e);
+                            None
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+
+            if let Some(seed) = nkey_seed {
+                opts = opts.nkey(seed);
+                info!("Spectre NATS NKey auth enabled");
+            }
+
             match opts.connect(url).await {
                 Ok(client) => {
                     info!("Spectre NATS connected to {}", url);

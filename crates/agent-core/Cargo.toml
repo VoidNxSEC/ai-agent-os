@@ -21,6 +21,11 @@ system-monitor = { path = "../system-monitor" }
 hyprland-ipc = { path = "../hyprland-ipc" }
 log-collector = { path = "../log-collector" }
 
+# Spectre event bus
+async-nats = { workspace = true }
+spectre-events = { workspace = true }
+spectre-core = { workspace = true }
+
 [[bin]]
 name = "ai-agent"
 path = "src/main.rs"
