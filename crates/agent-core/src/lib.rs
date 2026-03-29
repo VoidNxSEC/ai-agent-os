@@ -91,15 +91,13 @@ impl Agent {
     pub fn new() -> Result<Self> {
         Self::with_config(AgentConfig::default())
     }
-    
+
     /// Create a new agent with custom configuration
     pub fn with_config(config: AgentConfig) -> Result<Self> {
         info!("Initializing AI Agent OS...");
-        
-        let system_monitor = Arc::new(RwLock::new(
-            system_monitor::SystemMonitor::new()
-        ));
-        
+
+        let system_monitor = Arc::new(RwLock::new(system_monitor::SystemMonitor::new()));
+
         let hyprland_client = if config.enable_hyprland {
             match hyprland_ipc::HyprlandClient::new() {
                 Ok(client) => {
@@ -114,7 +112,7 @@ impl Agent {
         } else {
             None
         };
-        
+
         let state = Arc::new(RwLock::new(AgentState {
             running: false,
             last_metrics: None,
@@ -133,7 +131,7 @@ impl Agent {
         } else {
             None
         };
-        
+
         Ok(Self {
             config,
             state,
@@ -142,28 +140,28 @@ impl Agent {
             phantom_gate,
         })
     }
-    
+
     /// Start the agent
     pub async fn start(&self) -> Result<()> {
         info!("Starting AI Agent OS...");
-        
+
         {
             let mut state = self.state.write().await;
             state.running = true;
         }
-        
+
         // Spawn monitoring task
         let monitor_handle = self.spawn_monitoring_task();
-        
+
         // Spawn Hyprland event listener if available
         let hyprland_handle = if self.hyprland_client.is_some() {
             Some(self.spawn_hyprland_task())
         } else {
             None
         };
-        
+
         info!("AI Agent OS started successfully");
-        
+
         // Wait for tasks (in a real application, you'd want better task management)
         if let Some(hyprland_handle) = hyprland_handle {
             tokio::select! {
@@ -173,31 +171,31 @@ impl Agent {
         } else {
             monitor_handle.await.ok();
         }
-        
+
         Ok(())
     }
-    
+
     /// Stop the agent
     pub async fn stop(&self) -> Result<()> {
         info!("Stopping AI Agent OS...");
-        
+
         let mut state = self.state.write().await;
         state.running = false;
-        
+
         Ok(())
     }
-    
+
     /// Get current state
     pub async fn get_state(&self) -> AgentState {
         self.state.read().await.clone()
     }
-    
+
     /// Get current system metrics
     pub async fn get_metrics(&self) -> Result<system_monitor::SystemMetrics> {
         let mut monitor = self.system_monitor.write().await;
         monitor.collect()
     }
-    
+
     /// Get recent log entries (creates collector on demand)
     pub async fn get_logs(&self, count: usize) -> Result<Vec<log_collector::LogEntry>> {
         tokio::task::spawn_blocking(move || {
@@ -207,7 +205,7 @@ impl Agent {
         .await
         .context("Log collection task panicked")?
     }
-    
+
     /// Spawn monitoring task
     fn spawn_monitoring_task(&self) -> tokio::task::JoinHandle<()> {
         let state = Arc::clone(&self.state);
@@ -216,10 +214,10 @@ impl Agent {
         let thermal_threshold = self.config.thermal_threshold_celsius;
         let memory_threshold = self.config.memory_threshold_percent;
         let phantom_gate = self.phantom_gate.clone();
-        
+
         tokio::spawn(async move {
             info!("System monitoring task started");
-            
+
             loop {
                 // Check if we should stop
                 {
@@ -228,7 +226,7 @@ impl Agent {
                         break;
                     }
                 }
-                
+
                 // Collect metrics
                 let metrics = {
                     let mut monitor_guard = monitor.write().await;
@@ -241,10 +239,10 @@ impl Agent {
                         }
                     }
                 };
-                
+
                 // Check for alerts
                 let mut alerts = Vec::new();
-                
+
                 // Thermal check
                 if metrics.thermal.max_temp_celsius > thermal_threshold {
                     alerts.push(Alert {
@@ -262,17 +260,14 @@ impl Agent {
                         )),
                     });
                 }
-                
+
                 // Memory check
                 if metrics.memory.usage_percent > memory_threshold {
                     alerts.push(Alert {
                         timestamp: metrics.timestamp,
                         severity: AlertSeverity::Warning,
                         category: AlertCategory::Memory,
-                        message: format!(
-                            "High memory usage: {:.1}%",
-                            metrics.memory.usage_percent
-                        ),
+                        message: format!("High memory usage: {:.1}%", metrics.memory.usage_percent),
                         details: Some(format!(
                             "Used: {} MB, Total: {} MB",
                             metrics.memory.used_bytes / (1024 * 1024),
@@ -280,20 +275,20 @@ impl Agent {
                         )),
                     });
                 }
-                
+
                 // Update state
                 {
                     let mut state_guard = state.write().await;
                     state_guard.last_metrics = Some(metrics.clone());
                     state_guard.alerts.extend(alerts.clone());
-                    
+
                     // Keep only last 100 alerts
                     if state_guard.alerts.len() > 100 {
                         let drain_count = state_guard.alerts.len() - 100;
                         state_guard.alerts.drain(0..drain_count);
                     }
                 }
-                
+
                 // Log alerts
                 for alert in alerts.clone() {
                     match alert.severity {
@@ -312,14 +307,17 @@ impl Agent {
 
                         tokio::spawn(async move {
                             // Collect recent logs (best-effort)
-                            let logs: Vec<log_collector::LogEntry> = tokio::task::spawn_blocking(|| {
-                                let mut collector = log_collector::LogCollector::new()?;
-                                collector.get_recent_entries(200)
-                            })
-                            .await
-                            .ok()
-                            .and_then(|r: Result<Vec<log_collector::LogEntry>, anyhow::Error>| r.ok())
-                            .unwrap_or_default();
+                            let logs: Vec<log_collector::LogEntry> =
+                                tokio::task::spawn_blocking(|| {
+                                    let mut collector = log_collector::LogCollector::new()?;
+                                    collector.get_recent_entries(200)
+                                })
+                                .await
+                                .ok()
+                                .and_then(
+                                    |r: Result<Vec<log_collector::LogEntry>, anyhow::Error>| r.ok(),
+                                )
+                                .unwrap_or_default();
 
                             let hostname = std::env::var("HOSTNAME").ok();
 
@@ -346,29 +344,29 @@ impl Agent {
                         });
                     }
                 }
-                
-                debug!("Metrics collected - CPU: {:.1}%, Memory: {:.1}%, Temp: {:.1}°C",
+
+                debug!(
+                    "Metrics collected - CPU: {:.1}%, Memory: {:.1}%, Temp: {:.1}°C",
                     metrics.cpu.usage_percent,
                     metrics.memory.usage_percent,
                     metrics.thermal.max_temp_celsius
                 );
-                
+
                 tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
             }
-            
+
             info!("System monitoring task stopped");
         })
     }
-    
-    
+
     /// Spawn Hyprland event listener task
     fn spawn_hyprland_task(&self) -> tokio::task::JoinHandle<()> {
         let state = Arc::clone(&self.state);
         let client = self.hyprland_client.as_ref().unwrap().clone();
-        
+
         tokio::spawn(async move {
             info!("Hyprland event listener started");
-            
+
             // Subscribe to events
             let mut event_stream = match client.read().await.subscribe_events().await {
                 Ok(stream) => stream,
@@ -377,7 +375,7 @@ impl Agent {
                     return;
                 }
             };
-            
+
             loop {
                 // Check if we should stop
                 {
@@ -386,12 +384,12 @@ impl Agent {
                         break;
                     }
                 }
-                
+
                 // Read next event
                 match event_stream.next_event().await {
                     Ok(Some(event)) => {
                         debug!("Hyprland event: {:?}", event);
-                        
+
                         // You could process events here and create alerts
                         // For example, detect when certain windows open/close
                     }
@@ -404,7 +402,7 @@ impl Agent {
                     }
                 }
             }
-            
+
             info!("Hyprland event listener stopped");
         })
     }
@@ -419,13 +417,13 @@ impl Default for Agent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_agent_creation() {
         let agent = Agent::new();
         assert!(agent.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_agent_state() {
         let agent = Agent::new().unwrap();

@@ -48,73 +48,66 @@ pub enum HyprlandEvent {
 impl HyprlandClient {
     /// Create a new Hyprland IPC client
     pub fn new() -> Result<Self> {
-        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-            .context("XDG_RUNTIME_DIR not set")?;
-        
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR not set")?;
+
         let hyprland_instance = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
             .context("HYPRLAND_INSTANCE_SIGNATURE not set - not running under Hyprland?")?;
-        
+
         let socket_path = PathBuf::from(runtime_dir)
             .join("hypr")
             .join(&hyprland_instance)
             .join(".socket.sock");
-        
+
         if !socket_path.exists() {
             anyhow::bail!("Hyprland socket not found at {:?}", socket_path);
         }
-        
+
         Ok(Self { socket_path })
     }
-    
+
     /// Send a command to Hyprland and get the response
     pub async fn dispatch(&self, command: &str) -> Result<String> {
         let mut stream = UnixStream::connect(&self.socket_path)
             .await
             .context("Failed to connect to Hyprland socket")?;
-        
+
         stream.write_all(command.as_bytes()).await?;
         stream.write_all(b"\n").await?;
         stream.flush().await?;
-        
+
         let mut reader = BufReader::new(stream);
         let mut response = String::new();
         reader.read_line(&mut response).await?;
-        
+
         Ok(response.trim().to_string())
     }
-    
+
     /// Get active workspace info
     pub async fn get_active_workspace(&self) -> Result<Workspace> {
         let response = self.dispatch("j/activeworkspace").await?;
-        serde_json::from_str(&response)
-            .context("Failed to parse workspace info")
+        serde_json::from_str(&response).context("Failed to parse workspace info")
     }
-    
+
     /// Get all workspaces
     pub async fn get_workspaces(&self) -> Result<Vec<Workspace>> {
         let response = self.dispatch("j/workspaces").await?;
-        serde_json::from_str(&response)
-            .context("Failed to parse workspaces")
+        serde_json::from_str(&response).context("Failed to parse workspaces")
     }
-    
+
     /// Get all windows
     pub async fn get_clients(&self) -> Result<Vec<Window>> {
         let response = self.dispatch("j/clients").await?;
-        serde_json::from_str(&response)
-            .context("Failed to parse clients")
+        serde_json::from_str(&response).context("Failed to parse clients")
     }
-    
+
     /// Subscribe to Hyprland events
     pub async fn subscribe_events(&self) -> Result<HyprlandEventStream> {
-        let events_socket = self.socket_path
-            .parent()
-            .unwrap()
-            .join(".socket2.sock");
-        
+        let events_socket = self.socket_path.parent().unwrap().join(".socket2.sock");
+
         let stream = UnixStream::connect(&events_socket)
             .await
             .context("Failed to connect to Hyprland events socket")?;
-        
+
         Ok(HyprlandEventStream {
             reader: BufReader::new(stream),
         })
@@ -137,17 +130,17 @@ impl HyprlandEventStream {
     pub async fn next_event(&mut self) -> Result<Option<HyprlandEvent>> {
         let mut line = String::new();
         let bytes_read = self.reader.read_line(&mut line).await?;
-        
+
         if bytes_read == 0 {
             return Ok(None);
         }
-        
+
         // Parse Hyprland event format: "EVENT>>data"
         let parts: Vec<&str> = line.trim().splitn(2, ">>").collect();
         if parts.len() != 2 {
             return Ok(None);
         }
-        
+
         let event = match parts[0] {
             "workspace" => HyprlandEvent::WorkspaceChanged {
                 id: parts[1].parse().unwrap_or(0),
@@ -173,7 +166,7 @@ impl HyprlandEventStream {
             },
             _ => return Ok(None), // Unknown event, skip
         };
-        
+
         Ok(Some(event))
     }
 }
@@ -181,7 +174,7 @@ impl HyprlandEventStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_client_creation() {
         // This will fail if not running under Hyprland

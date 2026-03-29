@@ -1,13 +1,13 @@
 //! Tauri App Library - GUI Integration with AI Intelligence
-//! 
+//!
 //! Connects the autonomous AI agent to a native GUI interface.
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
 use tauri::{Manager, State, Window};
+use tokio::sync::RwLock;
 
-use ai_intelligence::{IntelligentAgent, AgentState, SystemAnalysis};
+use ai_intelligence::{AgentState, IntelligentAgent, SystemAnalysis};
 
 /// Global agent state
 pub struct AppState {
@@ -47,7 +47,7 @@ pub struct ProblemNotification {
 #[tauri::command]
 pub async fn init_agent(state: State<'_, AppState>) -> Result<String, String> {
     tracing::info!("🚀 Initializing Intelligent Agent...");
-    
+
     match IntelligentAgent::new().await {
         Ok(agent) => {
             *state.agent.write().await = Some(agent);
@@ -80,7 +80,7 @@ pub async fn get_metrics(state: State<'_, AppState>) -> Result<SystemMetrics, St
 #[tauri::command]
 pub async fn get_agent_state(state: State<'_, AppState>) -> Result<AgentState, String> {
     let agent_lock = state.agent.read().await;
-    
+
     if let Some(agent) = agent_lock.as_ref() {
         Ok(agent.get_state().await)
     } else {
@@ -92,9 +92,11 @@ pub async fn get_agent_state(state: State<'_, AppState>) -> Result<AgentState, S
 #[tauri::command]
 pub async fn analyze_system(state: State<'_, AppState>) -> Result<SystemAnalysis, String> {
     let agent_lock = state.agent.read().await;
-    
+
     if let Some(agent) = agent_lock.as_ref() {
-        agent.analyze_now().await
+        agent
+            .analyze_now()
+            .await
             .map_err(|e| format!("Analysis failed: {}", e))
     } else {
         Err("Agent not initialized".to_string())
@@ -105,7 +107,7 @@ pub async fn analyze_system(state: State<'_, AppState>) -> Result<SystemAnalysis
 #[tauri::command]
 pub async fn execute_command(command: String) -> Result<String, String> {
     tracing::info!("Executing command: {}", command);
-    
+
     // Execute command safely
     let output = tokio::process::Command::new("sh")
         .arg("-c")
@@ -113,7 +115,7 @@ pub async fn execute_command(command: String) -> Result<String, String> {
         .output()
         .await
         .map_err(|e| format!("Command failed: {}", e))?;
-    
+
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
@@ -146,14 +148,12 @@ pub async fn set_opacity(window: Window, opacity: f64) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_recent_problems() -> Result<Vec<ProblemNotification>, String> {
     // TODO: Implement problem history from KnowledgeBase
-    Ok(vec![
-        ProblemNotification {
-            severity: "warning".to_string(),
-            title: "Memory Pressure".to_string(),
-            message: "Memory usage reached 85%".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        },
-    ])
+    Ok(vec![ProblemNotification {
+        severity: "warning".to_string(),
+        title: "Memory Pressure".to_string(),
+        message: "Memory usage reached 85%".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }])
 }
 
 /// Tauri command: Set autonomy level
@@ -162,7 +162,7 @@ pub async fn set_autonomy_level(level: u8) -> Result<(), String> {
     if level > 100 {
         return Err("Autonomy level must be 0-100".to_string());
     }
-    
+
     tracing::info!("Setting autonomy level to: {}", level);
     // TODO: Actually set the autonomy level in DecisionEngine
     Ok(())

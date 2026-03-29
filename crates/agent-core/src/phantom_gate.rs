@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::{debug, info};
 
-use crate::{Alert, system_monitor::SystemMetrics};
+use crate::{system_monitor::SystemMetrics, Alert};
 use log_collector::LogEntry;
 
 /// Configuração do PhantomGate
@@ -94,8 +94,7 @@ impl PhantomGate {
     /// Criar novo PhantomGate
     pub fn new(config: PhantomGateConfig) -> Result<Self> {
         // Criar diretório de bundles se não existir
-        std::fs::create_dir_all(&config.bundle_dir)
-            .context("Failed to create bundle directory")?;
+        std::fs::create_dir_all(&config.bundle_dir).context("Failed to create bundle directory")?;
 
         // Criar cliente HTTP com timeout
         let client = Client::builder()
@@ -136,11 +135,7 @@ impl PhantomGate {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "Phantom returned error status {}: {}",
-                status,
-                error_text
-            );
+            anyhow::bail!("Phantom returned error status {}: {}", status, error_text);
         }
 
         let mut result: PhantomGateResult = response

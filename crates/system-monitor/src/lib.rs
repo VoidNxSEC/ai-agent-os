@@ -117,7 +117,7 @@ impl SystemMonitor {
     pub fn new() -> Self {
         let mut sys = System::new_all();
         sys.refresh_all();
-        
+
         Self {
             sys,
             components: Components::new_with_refreshed_list(),
@@ -125,7 +125,7 @@ impl SystemMonitor {
             networks: Networks::new_with_refreshed_list(),
         }
     }
-    
+
     /// Refresh all metrics
     pub fn refresh(&mut self) {
         self.sys.refresh_all();
@@ -133,11 +133,11 @@ impl SystemMonitor {
         self.disks.refresh();
         self.networks.refresh();
     }
-    
+
     /// Collect current system metrics snapshot
     pub fn collect(&mut self) -> Result<SystemMetrics> {
         self.refresh();
-        
+
         Ok(SystemMetrics {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -150,12 +150,14 @@ impl SystemMonitor {
             network: self.collect_network_metrics()?,
         })
     }
-    
+
     fn collect_cpu_metrics(&self) -> Result<CpuMetrics> {
         let load_avg = System::load_average();
         let global_cpu = self.sys.global_cpu_usage();
-        
-        let cores = self.sys.cpus()
+
+        let cores = self
+            .sys
+            .cpus()
             .iter()
             .enumerate()
             .map(|(id, cpu)| CoreMetrics {
@@ -164,7 +166,7 @@ impl SystemMonitor {
                 frequency_mhz: cpu.frequency(),
             })
             .collect();
-        
+
         Ok(CpuMetrics {
             usage_percent: global_cpu,
             cores,
@@ -174,14 +176,14 @@ impl SystemMonitor {
             frequency_mhz: self.sys.cpus().first().map(|c| c.frequency()).unwrap_or(0),
         })
     }
-    
+
     fn collect_memory_metrics(&self) -> Result<MemoryMetrics> {
         let total = self.sys.total_memory();
         let used = self.sys.used_memory();
         let available = self.sys.available_memory();
         let swap_total = self.sys.total_swap();
         let swap_used = self.sys.used_swap();
-        
+
         Ok(MemoryMetrics {
             total_bytes: total,
             used_bytes: used,
@@ -196,15 +198,16 @@ impl SystemMonitor {
             },
         })
     }
-    
+
     fn collect_disk_metrics(&self) -> Result<DiskMetrics> {
-        let disks = self.disks
+        let disks = self
+            .disks
             .iter()
             .map(|disk| {
                 let total = disk.total_space();
                 let available = disk.available_space();
                 let used = total - available;
-                
+
                 DiskInfo {
                     name: disk.name().to_string_lossy().to_string(),
                     mount_point: disk.mount_point().to_string_lossy().to_string(),
@@ -219,7 +222,7 @@ impl SystemMonitor {
                 }
             })
             .collect();
-        
+
         // Note: sysinfo doesn't provide I/O stats directly
         // We'd need to read from /proc/diskstats for this
         Ok(DiskMetrics {
@@ -228,9 +231,10 @@ impl SystemMonitor {
             total_write_bytes: 0,
         })
     }
-    
+
     fn collect_thermal_metrics(&self) -> Result<ThermalMetrics> {
-        let sensors: Vec<ThermalSensor> = self.components
+        let sensors: Vec<ThermalSensor> = self
+            .components
             .iter()
             .map(|component| ThermalSensor {
                 name: component.label().to_string(),
@@ -239,27 +243,29 @@ impl SystemMonitor {
                 critical_celsius: component.critical(),
             })
             .collect();
-        
-        let max_temp = sensors.iter()
+
+        let max_temp = sensors
+            .iter()
             .map(|s| s.temperature_celsius)
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or(0.0);
-        
+
         let avg_temp = if !sensors.is_empty() {
             sensors.iter().map(|s| s.temperature_celsius).sum::<f32>() / sensors.len() as f32
         } else {
             0.0
         };
-        
+
         Ok(ThermalMetrics {
             sensors,
             max_temp_celsius: max_temp,
             avg_temp_celsius: avg_temp,
         })
     }
-    
+
     fn collect_network_metrics(&self) -> Result<NetworkMetrics> {
-        let interfaces: Vec<NetworkInterface> = self.networks
+        let interfaces: Vec<NetworkInterface> = self
+            .networks
             .iter()
             .map(|(name, data)| NetworkInterface {
                 name: name.to_string(),
@@ -269,24 +275,24 @@ impl SystemMonitor {
                 tx_packets: data.packets_transmitted(),
             })
             .collect();
-        
+
         let total_rx = interfaces.iter().map(|i| i.rx_bytes).sum();
         let total_tx = interfaces.iter().map(|i| i.tx_bytes).sum();
-        
+
         Ok(NetworkMetrics {
             interfaces,
             total_rx_bytes: total_rx,
             total_tx_bytes: total_tx,
         })
     }
-    
+
     /// Check if system is under thermal stress
     pub fn is_thermal_throttling(&self, threshold_celsius: f32) -> bool {
         self.components
             .iter()
             .any(|c| c.temperature() > threshold_celsius)
     }
-    
+
     /// Check if system is under memory pressure
     pub fn is_memory_pressure(&self, threshold_percent: f32) -> bool {
         let used = self.sys.used_memory() as f32;
@@ -304,18 +310,18 @@ impl Default for SystemMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_system_monitor_creation() {
         let monitor = SystemMonitor::new();
         assert!(monitor.sys.cpus().len() > 0);
     }
-    
+
     #[test]
     fn test_collect_metrics() {
         let mut monitor = SystemMonitor::new();
         let metrics = monitor.collect().unwrap();
-        
+
         assert!(metrics.cpu.usage_percent >= 0.0);
         assert!(metrics.memory.total_bytes > 0);
     }

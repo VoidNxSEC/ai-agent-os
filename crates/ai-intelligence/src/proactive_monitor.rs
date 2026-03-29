@@ -1,16 +1,19 @@
 //! Proactive Monitor - Predictive Problem Detection
-//! 
+//!
 //! Continuously monitors system state and predicts/detects problems before they become critical.
 
 use anyhow::Result;
 use std::cell::RefCell;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::{Problem, state_manager::{StateManager, StateSnapshot}};
 use crate::anomaly_detector::AnomalyDetector;
+use crate::{
+    state_manager::{StateManager, StateSnapshot},
+    Problem,
+};
 
 const MONITOR_INTERVAL_SECS: u64 = 5;
 const MEMORY_THRESHOLD: f32 = 85.0;
@@ -22,10 +25,10 @@ const DISK_THRESHOLD: f32 = 90.0;
 pub struct ProactiveMonitor {
     /// State manager reference
     state: Arc<RwLock<StateManager>>,
-    
+
     /// Anomaly detector
     anomaly_detector: Arc<RwLock<AnomalyDetector>>,
-    
+
     /// Problem notification channel
     problem_tx: mpsc::UnboundedSender<Problem>,
     problem_rx: RefCell<Option<mpsc::UnboundedReceiver<Problem>>>,
@@ -38,7 +41,7 @@ impl ProactiveMonitor {
         anomaly_detector: Arc<RwLock<AnomalyDetector>>,
     ) -> Self {
         let (problem_tx, problem_rx) = mpsc::unbounded_channel();
-        
+
         Self {
             state,
             anomaly_detector,
@@ -46,28 +49,30 @@ impl ProactiveMonitor {
             problem_rx: Some(problem_rx),
         }
     }
-    
+
     /// Start monitoring task
     pub async fn start_monitoring(&self) {
         let state = self.state.clone();
         let anomaly_detector = self.anomaly_detector.clone();
         let problem_tx = self.problem_tx.clone();
-        
+
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(MONITOR_INTERVAL_SECS)).await;
-                
+
                 if let Err(e) = Self::check_system_state(
                     state.clone(),
                     anomaly_detector.clone(),
                     problem_tx.clone(),
-                ).await {
+                )
+                .await
+                {
                     warn!("Monitor error: {}", e);
                 }
             }
         });
     }
-    
+
     /// Wait for next detected problem
     pub async fn detect_next_problem(&self) -> Option<Problem> {
         if let Some(rx) = self.problem_rx.borrow_mut().as_mut() {
@@ -76,7 +81,7 @@ impl ProactiveMonitor {
             None
         }
     }
-    
+
     /// Check current system state for problems
     async fn check_system_state(
         state: Arc<RwLock<StateManager>>,
@@ -85,28 +90,26 @@ impl ProactiveMonitor {
     ) -> Result<()> {
         // Get current metrics (would integrate with system-monitor here)
         let snapshot = Self::capture_snapshot().await?;
-        
+
         // Record in state manager
         {
             let mut state = state.write().await;
             state.record_snapshot(snapshot.clone());
         }
-        
+
         // Check thresholds
         Self::check_thresholds(&snapshot, &problem_tx)?;
-        
+
         // Check for anomalies
         let detector = anomaly_detector.read().await;
         if let Some(anomaly) = detector.detect_anomaly(&snapshot)? {
             info!("🔍 Anomaly detected: {}", anomaly);
-            problem_tx.send(Problem::LogAnomaly { 
-                pattern: anomaly 
-            })?;
+            problem_tx.send(Problem::LogAnomaly { pattern: anomaly })?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Check threshold-based problems
     fn check_thresholds(
         snapshot: &StateSnapshot,
@@ -119,7 +122,7 @@ impl ProactiveMonitor {
                 usage_percent: snapshot.memory_percent,
             })?;
         }
-        
+
         // CPU overload
         if snapshot.cpu_percent > CPU_THRESHOLD {
             warn!("⚠️ CPU overload: {:.1}%", snapshot.cpu_percent);
@@ -127,7 +130,7 @@ impl ProactiveMonitor {
                 load: snapshot.cpu_percent,
             })?;
         }
-        
+
         // Thermal issue
         if snapshot.temp_celsius > TEMP_THRESHOLD {
             warn!("⚠️ High temperature: {:.1}°C", snapshot.temp_celsius);
@@ -135,7 +138,7 @@ impl ProactiveMonitor {
                 temp_celsius: snapshot.temp_celsius,
             })?;
         }
-        
+
         // Disk full
         if snapshot.disk_percent > DISK_THRESHOLD {
             warn!("⚠️ Disk almost full: {:.1}%", snapshot.disk_percent);
@@ -144,10 +147,10 @@ impl ProactiveMonitor {
                 usage_percent: snapshot.disk_percent,
             })?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Capture current system snapshot
     async fn capture_snapshot() -> Result<StateSnapshot> {
         // TODO: Integrate with actual system-monitor
@@ -166,11 +169,11 @@ impl ProactiveMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_threshold_detection() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        
+
         let snapshot = StateSnapshot {
             timestamp: chrono::Utc::now(),
             cpu_percent: 95.0,
@@ -179,15 +182,15 @@ mod tests {
             disk_percent: 95.0,
             active_processes: 300,
         };
-        
+
         ProactiveMonitor::check_thresholds(&snapshot, &tx).unwrap();
-        
+
         // Should detect multiple problems
         let mut problems = Vec::new();
         while let Ok(problem) = rx.try_recv() {
             problems.push(problem);
         }
-        
+
         assert!(problems.len() >= 3); // CPU, Memory, Temp, Disk
     }
 }

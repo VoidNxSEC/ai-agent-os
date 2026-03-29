@@ -12,8 +12,8 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["kernelcore"]
-license = "MIT"
+authors = ["voidnxlabs <dev@voidnxlabs.io>"]
+license = "Apache-2.0"
 repository = "https://github.com/kernelcore/ai-agent-os"
 
 [workspace.dependencies]
@@ -40,6 +40,11 @@ nix = { version = "0.27", features = ["process", "signal"] }
 
 # IPC
 serde_repr = "0.1"
+
+# Event bus (Spectre)
+async-nats = "0.38"
+spectre-events = { path = "../spectre/crates/spectre-events" }
+spectre-core = { path = "../spectre/crates/spectre-core" }
 
 [profile.release]
 opt-level = 3
