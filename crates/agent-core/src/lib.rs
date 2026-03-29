@@ -9,6 +9,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+use spectre_core::ServiceId;
+use spectre_events::{Event, EventType};
+
 mod phantom_gate;
 pub use phantom_gate::{PhantomGate, PhantomGateBundle, PhantomGateConfig, PhantomGateResult};
 
@@ -26,6 +29,9 @@ pub struct AgentConfig {
     pub enable_hyprland: bool,
     pub log_filter: log_collector::LogFilter,
     pub phantom_gate: PhantomGateConfig,
+    /// Optional NATS URL for Spectre event publishing.
+    /// If None, event publishing is disabled (agent runs standalone).
+    pub nats_url: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -37,6 +43,7 @@ impl Default for AgentConfig {
             enable_hyprland: true,
             log_filter: log_collector::LogFilter::default(),
             phantom_gate: PhantomGateConfig::default(),
+            nats_url: None,
         }
     }
 }
@@ -84,16 +91,18 @@ pub struct Agent {
     system_monitor: Arc<RwLock<system_monitor::SystemMonitor>>,
     hyprland_client: Option<Arc<RwLock<hyprland_ipc::HyprlandClient>>>,
     phantom_gate: Option<Arc<PhantomGate>>,
+    /// NATS client for Spectre event publishing (None = disabled).
+    nats_client: Option<Arc<async_nats::Client>>,
 }
 
 impl Agent {
     /// Create a new agent with default configuration
-    pub fn new() -> Result<Self> {
-        Self::with_config(AgentConfig::default())
+    pub async fn new() -> Result<Self> {
+        Self::with_config(AgentConfig::default()).await
     }
 
     /// Create a new agent with custom configuration
-    pub fn with_config(config: AgentConfig) -> Result<Self> {
+    pub async fn with_config(config: AgentConfig) -> Result<Self> {
         info!("Initializing AI Agent OS...");
 
         let system_monitor = Arc::new(RwLock::new(system_monitor::SystemMonitor::new()));
@@ -132,12 +141,48 @@ impl Agent {
             None
         };
 
+        // Connect to NATS if configured (best-effort: failure doesn't abort startup).
+        // Uses ConnectOptions with unlimited reconnect so ai-agent-os survives
+        // transient NATS restarts and resumes publishing automatically.
+        let nats_client = if let Some(ref url) = config.nats_url {
+            let opts = async_nats::ConnectOptions::new()
+                .max_reconnects(None) // unlimited
+                .connection_timeout(std::time::Duration::from_secs(5))
+                .event_callback(|event| async move {
+                    match event {
+                        async_nats::Event::Disconnected => {
+                            warn!("Spectre NATS disconnected — will reconnect automatically");
+                        }
+                        async_nats::Event::Connected => {
+                            info!("Spectre NATS connected/reconnected");
+                        }
+                        async_nats::Event::ClientError(err) => {
+                            warn!("Spectre NATS client error: {}", err);
+                        }
+                        _ => {}
+                    }
+                });
+            match opts.connect(url).await {
+                Ok(client) => {
+                    info!("Spectre NATS connected to {}", url);
+                    Some(Arc::new(client))
+                }
+                Err(e) => {
+                    warn!("Failed to connect to NATS at {}: {}. Event publishing disabled.", url, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             state,
             system_monitor,
             hyprland_client,
             phantom_gate,
+            nats_client,
         })
     }
 
@@ -151,7 +196,7 @@ impl Agent {
         }
 
         // Spawn monitoring task
-        let monitor_handle = self.spawn_monitoring_task();
+        let monitor_handle = self.spawn_monitoring_task(self.nats_client.clone());
 
         // Spawn Hyprland event listener if available
         let hyprland_handle = if self.hyprland_client.is_some() {
@@ -207,7 +252,10 @@ impl Agent {
     }
 
     /// Spawn monitoring task
-    fn spawn_monitoring_task(&self) -> tokio::task::JoinHandle<()> {
+    fn spawn_monitoring_task(
+        &self,
+        nats_client: Option<Arc<async_nats::Client>>,
+    ) -> tokio::task::JoinHandle<()> {
         let state = Arc::clone(&self.state);
         let monitor = Arc::clone(&self.system_monitor);
         let interval = self.config.monitoring_interval_secs;
@@ -239,6 +287,35 @@ impl Agent {
                         }
                     }
                 };
+
+                // Publish system.metrics.v1 to Spectre (best-effort)
+                if let Some(ref nc) = nats_client {
+                    let payload = serde_json::json!({
+                        "cpu_percent": metrics.cpu.usage_percent,
+                        "memory_percent": metrics.memory.usage_percent,
+                        "memory_used_bytes": metrics.memory.used_bytes,
+                        "memory_total_bytes": metrics.memory.total_bytes,
+                        "temp_avg_celsius": metrics.thermal.avg_temp_celsius,
+                        "temp_max_celsius": metrics.thermal.max_temp_celsius,
+                        "disk_count": metrics.disk.disks.len(),
+                        "net_rx_bytes": metrics.network.total_rx_bytes,
+                        "net_tx_bytes": metrics.network.total_tx_bytes,
+                    });
+                    let event = Event::new(
+                        EventType::SystemMetrics,
+                        ServiceId::new("ai-agent-os"),
+                        payload,
+                    );
+                    match event.to_json() {
+                        Ok(json) => {
+                            let subject = event.subject();
+                            if let Err(e) = nc.publish(subject, json.into()).await {
+                                debug!("NATS publish failed: {}", e);
+                            }
+                        }
+                        Err(e) => debug!("Failed to serialize metrics event: {}", e),
+                    }
+                }
 
                 // Check for alerts
                 let mut alerts = Vec::new();
@@ -408,25 +485,22 @@ impl Agent {
     }
 }
 
-impl Default for Agent {
-    fn default() -> Self {
-        Self::new().expect("Failed to create agent")
-    }
-}
+// Note: Default is not implemented for Agent because construction is async.
+// Use Agent::new().await or Agent::with_config(config).await.
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_agent_creation() {
-        let agent = Agent::new();
+    #[tokio::test]
+    async fn test_agent_creation() {
+        let agent = Agent::new().await;
         assert!(agent.is_ok());
     }
 
     #[tokio::test]
     async fn test_agent_state() {
-        let agent = Agent::new().unwrap();
+        let agent = Agent::new().await.unwrap();
         let state = agent.get_state().await;
         assert!(!state.running);
     }
