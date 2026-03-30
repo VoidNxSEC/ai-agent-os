@@ -70,7 +70,7 @@
 
           meta = with pkgs.lib; {
             description = "AI Agent OS - Native system monitoring and log analysis";
-            homepage = "https://github.com/marcosfpina/ai-agent-os";
+            homepage = "https://github.com/VoidNxSEC/ai-agent-os";
             license = licenses.mit;
             maintainers = [ marcosfpina ];
           };
