@@ -1,0 +1,21 @@
+[package]
+name = "email-monitor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+anyhow     = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+agent-core     = { path = "../agent-core" }
+spectre-events = { workspace = true }
+spectre-core   = { workspace = true }
+async-nats     = { workspace = true }
+reqwest    = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+notify-rust = "4"
+imap        = "2"

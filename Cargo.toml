@@ -7,14 +7,15 @@ members = [
     "crates/log-collector",
     "crates/ai-intelligence",
     "crates/tauri-app",
+    "crates/email-monitor",
 ]
 
 [workspace.package]
-version = "0.1.0"
-edition = "2021"
-authors = ["voidnxlabs <dev@voidnxlabs.io>"]
+version = "0.0.1"
+edition = "2024"
+authors = ["voidnxlabs <sec@voidnxlabs.com>"]
 license = "Apache-2.0"
-repository = "https://github.com/kernelcore/ai-agent-os"
+repository = "https://github.com/VoidNxSEC/ai-agent-os"
 
 [workspace.dependencies]
 # Async runtime

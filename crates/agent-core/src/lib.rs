@@ -33,7 +33,16 @@ pub struct AgentConfig {
     /// Optional NATS URL for Spectre event publishing.
     /// If None, event publishing is disabled (agent runs standalone).
     pub nats_url: Option<String>,
+    #[serde(default)]
+    pub email_monitor_enabled: bool,
+    #[serde(default = "default_email_poll_secs")]
+    pub email_poll_interval_secs: u64,
+    #[serde(default = "default_true")]
+    pub email_hot_only_notify: bool,
 }
+
+fn default_email_poll_secs() -> u64 { 300 }
+fn default_true() -> bool { true }
 
 impl Default for AgentConfig {
     fn default() -> Self {
@@ -45,6 +54,9 @@ impl Default for AgentConfig {
             log_filter: log_collector::LogFilter::default(),
             phantom_gate: PhantomGateConfig::default(),
             nats_url: None,
+            email_monitor_enabled: false,
+            email_poll_interval_secs: 300,
+            email_hot_only_notify: true,
         }
     }
 }
@@ -83,6 +95,7 @@ pub enum AlertCategory {
     Network,
     System,
     Hyprland,
+    Email,
 }
 
 /// Main agent orchestrator
@@ -545,6 +558,38 @@ impl Agent {
 
 // Note: Default is not implemented for Agent because construction is async.
 // Use Agent::new().await or Agent::with_config(config).await.
+
+/// Pluggable monitor interface. Implementations run in their own tokio task.
+pub trait Monitor: Send + Sync {
+    fn run(
+        &self,
+        alerts: Arc<AlertSystem>,
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send + '_;
+}
+
+/// Shared alert sink passed to every `Monitor` implementation.
+pub struct AlertSystem {
+    state: Arc<RwLock<AgentState>>,
+    pub nats_client: Option<Arc<async_nats::Client>>,
+}
+
+impl AlertSystem {
+    pub fn new(
+        state: Arc<RwLock<AgentState>>,
+        nats_client: Option<Arc<async_nats::Client>>,
+    ) -> Arc<Self> {
+        Arc::new(Self { state, nats_client })
+    }
+
+    pub async fn send(&self, alert: Alert) {
+        let mut state = self.state.write().await;
+        state.alerts.push(alert);
+        if state.alerts.len() > 100 {
+            let drain = state.alerts.len() - 100;
+            state.alerts.drain(0..drain);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
