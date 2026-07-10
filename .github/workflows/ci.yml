@@ -1,0 +1,16 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    uses: VoidNxSEC/voidnxlabs-workflows/.github/workflows/reusable-rust-ci.yml@main
+    secrets: inherit
